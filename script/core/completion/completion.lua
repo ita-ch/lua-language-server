@@ -2117,7 +2117,8 @@ end
 local function buildluaDocOfFunction(func)
     local index = 1
     local buf = {}
-    buf[#buf+1] = '${1:comment}'
+    buf[#buf+1] = '-----------------------------------------------------------------------------'
+    buf[#buf+1] = '--- ${1:comment}'
     local args = {}
     local returns = {}
     if func.args then
@@ -2138,7 +2139,7 @@ local function buildluaDocOfFunction(func)
         local funcArg = func.args[n]
         if funcArg[1] and funcArg.type ~= 'self' then
             index = index + 1
-            buf[#buf+1] = ('---@param %s ${%d:%s}'):format(
+            buf[#buf+1] = ('--- @param %s ${%d:%s}'):format(
                 funcArg[1],
                 index,
                 arg
@@ -2147,7 +2148,7 @@ local function buildluaDocOfFunction(func)
     end
     for _, rtn in ipairs(returns) do
         index = index + 1
-        buf[#buf+1] = ('---@return ${%d:%s}'):format(
+        buf[#buf+1] = ('--- @return ${%d:%s}'):format(
             index,
             rtn
         )
