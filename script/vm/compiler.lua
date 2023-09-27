@@ -7,11 +7,14 @@ local files      = require 'files'
 local vm         = require 'vm.vm'
 
 ---@class parser.object
----@field _compiledNodes     boolean
----@field _node              vm.node
----@field cindex             integer
----@field func               parser.object
----@field hideView           boolean
+---@field _compiledNodes        boolean
+---@field _node                 vm.node
+---@field cindex                integer
+---@field func                  parser.object
+---@field hideView              boolean
+---@field package _returns?     parser.object[]
+---@field package _callReturns? parser.object[]
+---@field package _asCache?     parser.object[]
 
 -- 该函数有副作用，会给source绑定node！
 ---@param source parser.object
@@ -483,6 +486,7 @@ function vm.getReturnOfFunction(func, index)
             func._returns = {}
         end
         if not func._returns[index] then
+            ---@diagnostic disable-next-line: missing-fields
             func._returns[index] = {
                 type        = 'function.return',
                 parent      = func,
@@ -580,6 +584,7 @@ local function getReturn(func, index, args)
     end
     if not func._callReturns[index] then
         local call = func.parent
+        ---@diagnostic disable-next-line: missing-fields
         func._callReturns[index] = {
             type   = 'call.return',
             parent = call,
@@ -1112,6 +1117,12 @@ local function compileLocal(source)
         end
     end
 
+    if  source.value
+    and source.value.type == 'nil'
+    and not myNode:hasKnownType() then
+        vm.setNode(source, vm.compileNode(source.value))
+    end
+
     myNode.hasDefined = hasMarkDoc or hasMarkParam or hasMarkValue
 end
 
@@ -1166,6 +1177,16 @@ local compilerSwitch = util.switch()
         if source.parent.type == 'callargs' then
             local call = source.parent.parent
             vm.compileCallArg(source, call)
+        end
+
+        if source.parent.type == 'return' then
+            local myIndex = util.arrayIndexOf(source.parent, source)
+            ---@cast myIndex -?
+            local parentNode = vm.selectNode(source.parent, myIndex)
+            if not parentNode:isEmpty() then
+                vm.setNode(source, parentNode)
+                return
+            end
         end
 
         if source.parent.type == 'setglobal'
@@ -1669,7 +1690,7 @@ local compilerSwitch = util.switch()
             if state.type == 'doc.return'
             or state.type == 'doc.param' then
                 local func = state.bindSource
-                if func.type == 'function' then
+                if func and func.type == 'function' then
                     local node = guide.getFunctionSelfNode(func)
                     if node then
                         vm.setNode(source, vm.compileNode(node))

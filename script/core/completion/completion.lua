@@ -1251,6 +1251,46 @@ local function insertDocEnum(state, pos, doc, enums)
     return enums
 end
 
+---@param state     parser.state
+---@param pos       integer
+---@param doc       vm.node.object
+---@param enums     table[]
+---@return table[]?
+local function insertDocEnumKey(state, pos, doc, enums)
+    local tbl = doc.bindSource
+    if not tbl then
+        return nil
+    end
+    local keyEnums = {}
+    for _, field in ipairs(tbl) do
+        if field.type == 'tablefield'
+        or field.type == 'tableindex' then
+            if not field.value then
+                goto CONTINUE
+            end
+            local key = guide.getKeyName(field)
+            if not key then
+                goto CONTINUE
+            end
+            enums[#enums+1] = {
+                label  = ('%q'):format(key),
+                kind   = define.CompletionItemKind.EnumMember,
+                id     = stack(field, function (newField) ---@async
+                    return {
+                        detail      = buildDetail(newField),
+                        description = buildDesc(newField),
+                    }
+                end),
+            }
+            ::CONTINUE::
+        end
+    end
+    for _, enum in ipairs(keyEnums) do
+        enums[#enums+1] = enum
+    end
+    return enums
+end
+
 local function buildInsertDocFunction(doc)
     local args = {}
     for i, arg in ipairs(doc.args) do
@@ -1316,7 +1356,11 @@ local function insertEnum(state, pos, src, enums, isInArray, mark)
     elseif src.type == 'global' and src.cate == 'type' then
         for _, set in ipairs(src:getSets(state.uri)) do
             if set.type == 'doc.enum' then
-                insertDocEnum(state, pos, set, enums)
+                if vm.docHasAttr(set, 'key') then
+                    insertDocEnumKey(state, pos, set, enums)
+                else
+                    insertDocEnum(state, pos, set, enums)
+                end
             end
         end
     end
@@ -2114,11 +2158,10 @@ local function tryluaDocByErr(state, position, err, docState, results)
     end
 end
 
-local function buildluaDocOfFunction(func)
+local function buildluaDocOfFunction(func, pad)
     local index = 1
     local buf = {}
-    buf[#buf+1] = '-----------------------------------------------------------------------------'
-    buf[#buf+1] = '--- ${1:comment}'
+    buf[#buf+1] = '${1:comment}'
     local args = {}
     local returns = {}
     if func.args then
@@ -2139,7 +2182,8 @@ local function buildluaDocOfFunction(func)
         local funcArg = func.args[n]
         if funcArg[1] and funcArg.type ~= 'self' then
             index = index + 1
-            buf[#buf+1] = ('--- @param %s ${%d:%s}'):format(
+            buf[#buf+1] = ('---%s@param %s ${%d:%s}'):format(
+                pad and ' ' or '',
                 funcArg[1],
                 index,
                 arg
@@ -2148,7 +2192,7 @@ local function buildluaDocOfFunction(func)
     end
     for _, rtn in ipairs(returns) do
         index = index + 1
-        buf[#buf+1] = ('--- @return ${%d:%s}'):format(
+        buf[#buf+1] = ('---@return ${%d:%s}'):format(
             index,
             rtn
         )
@@ -2157,7 +2201,7 @@ local function buildluaDocOfFunction(func)
     return insertText
 end
 
-local function tryluaDocOfFunction(doc, results)
+local function tryluaDocOfFunction(doc, results, pad)
     if not doc.bindSource then
         return
     end
@@ -2179,7 +2223,7 @@ local function tryluaDocOfFunction(doc, results)
             end
         end
     end
-    local insertText = buildluaDocOfFunction(func)
+    local insertText = buildluaDocOfFunction(func, pad)
     results[#results+1] = {
         label            = '@param;@return',
         kind             = define.CompletionItemKind.Snippet,
@@ -2197,9 +2241,9 @@ local function tryLuaDoc(state, position, results)
     end
     if doc.type == 'doc.comment' then
         local line = doc.originalComment.text
-        -- 尝试 ---$
-        if line == '-' then
-            tryluaDocOfFunction(doc, results)
+        -- 尝试 '---$' or '--- $'
+        if line == '-' or line == '- ' then
+            tryluaDocOfFunction(doc, results, line == '- ')
             return
         end
         -- 尝试 ---@$
